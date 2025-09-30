@@ -53,13 +53,49 @@ class MockCollection:
             return list(self.data.values())
         results = []
         for doc in self.data.values():
+            # Copy the document to avoid modifying the original
+            doc_copy = doc.copy()
             match = True
+            
+            # Handle MongoDB-style queries
             for key, value in query.items():
-                if key not in doc or doc[key] != value:
+                if "." in key:  # Handle nested queries like "schedule_details.days"
+                    nested_keys = key.split(".")
+                    nested_value = doc_copy
+                    for nested_key in nested_keys:
+                        if nested_key in nested_value:
+                            nested_value = nested_value[nested_key]
+                        else:
+                            match = False
+                            break
+                    
+                    if match and isinstance(value, dict):
+                        # Handle MongoDB operators
+                        for op, op_value in value.items():
+                            if op == "$in":
+                                # Check if any value in op_value is in the nested_value (which should be a list)
+                                if isinstance(nested_value, list):
+                                    if not any(item in nested_value for item in op_value):
+                                        match = False
+                                        break
+                                else:
+                                    if nested_value not in op_value:
+                                        match = False
+                                        break
+                            elif op == "$gte" and nested_value < op_value:
+                                match = False
+                                break  
+                            elif op == "$lte" and nested_value > op_value:
+                                match = False
+                                break
+                    elif match and nested_value != value:
+                        match = False
+                elif key not in doc_copy or doc_copy[key] != value:
                     match = False
                     break
+            
             if match:
-                results.append(doc)
+                results.append(doc_copy)
         return results
     
     def aggregate(self, pipeline):
@@ -233,6 +269,17 @@ initial_activities = {
         },
         "max_participants": 16,
         "participants": ["william@mergington.edu", "jacob@mergington.edu"]
+    },
+    "Manga Maniacs": {
+        "description": "Explore the fantastic stories of the most interesting characters from Japanese Manga (graphic novels).",
+        "schedule": "Tuesdays, 7:00 PM - 8:30 PM",
+        "schedule_details": {
+            "days": ["Tuesday"],
+            "start_time": "19:00",
+            "end_time": "20:30"
+        },
+        "max_participants": 15,
+        "participants": []
     }
 }
 
