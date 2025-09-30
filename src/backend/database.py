@@ -1,15 +1,85 @@
 """
-MongoDB database configuration and setup for Mergington High School API
+Database configuration and setup for Mergington High School API
+Using in-memory storage for development
 """
 
-from pymongo import MongoClient
 from argon2 import PasswordHasher
 
-# Connect to MongoDB
-client = MongoClient('mongodb://localhost:27017/')
-db = client['mergington_high']
-activities_collection = db['activities']
-teachers_collection = db['teachers']
+# In-memory database simulation
+class MockCollection:
+    def __init__(self):
+        self.data = {}
+    
+    def count_documents(self, query):
+        return len(self.data)
+    
+    def find_one(self, query):
+        if "_id" in query:
+            return self.data.get(query["_id"])
+        # For more complex queries, return first match or None
+        for doc in self.data.values():
+            match = True
+            for key, value in query.items():
+                if key not in doc or doc[key] != value:
+                    match = False
+                    break
+            if match:
+                return doc
+        return None
+    
+    def insert_one(self, document):
+        if "_id" not in document:
+            document["_id"] = str(len(self.data))
+        self.data[document["_id"]] = document
+        return MockResult(True, 1)
+    
+    def update_one(self, query, update):
+        doc = self.find_one(query)
+        if doc:
+            if "$push" in update:
+                for key, value in update["$push"].items():
+                    if key not in doc:
+                        doc[key] = []
+                    doc[key].append(value)
+            if "$pull" in update:
+                for key, value in update["$pull"].items():
+                    if key in doc and value in doc[key]:
+                        doc[key].remove(value)
+            return MockResult(True, 1)
+        return MockResult(False, 0)
+    
+    def find(self, query=None):
+        if query is None:
+            return list(self.data.values())
+        results = []
+        for doc in self.data.values():
+            match = True
+            for key, value in query.items():
+                if key not in doc or doc[key] != value:
+                    match = False
+                    break
+            if match:
+                results.append(doc)
+        return results
+    
+    def aggregate(self, pipeline):
+        # Simple implementation for the days aggregation
+        if pipeline and "$unwind" in str(pipeline[0]):
+            days = set()
+            for doc in self.data.values():
+                if "schedule_details" in doc and "days" in doc["schedule_details"]:
+                    for day in doc["schedule_details"]["days"]:
+                        days.add(day)
+            return [{"_id": day} for day in sorted(days)]
+        return []
+
+class MockResult:
+    def __init__(self, success, count):
+        self.modified_count = count if success else 0
+
+# Mock database collections
+activities_collection = MockCollection()
+teachers_collection = MockCollection()
 
 # Methods
 def hash_password(password):
